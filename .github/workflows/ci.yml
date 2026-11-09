@@ -1,0 +1,58 @@
+# CI:push 即自动执行回归门禁(spec 0009 票 03)。
+# 单 workflow 双 job:主模块门禁 + examples module 构建校验。
+# 不引入额外校验工具;GitHub 侧首跑绿复核归 spec 0009 票 04(推送后)。
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  main-module:
+    name: 主模块(build / vet / gofmt / test -race)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装 Go(版本以 go.mod 声明为准)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      # gofmt 检查:有输出即失败并打印输出。
+      # 范围裁决:全部跟踪 .go 文件排除 ^spike/ —— 仓库根 gofmt -l 的唯一
+      # 存量命中为 spike/sdkapi/main.go(tip cd3847e 既有未格式化文件,非本票
+      # 范围);git ls-files 只列跟踪文件,与 CI 检出树一致。
+      - name: gofmt 检查(排除存量 spike/sdkapi,有输出即失败)
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go' | grep -v '^spike/'))"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt 检查未通过,以下文件需要格式化:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # e2e 套件随测试自动执行(含 spec 0008 evalx 门禁 family);
+      # benchmark 全量靠 FLAMINGOS_BENCHMARK=1 环境变量门控,此处不设,缺省不触发。
+      - run: go test ./... -race -count=1
+
+  examples-module:
+    name: examples module 构建校验
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装 Go(版本以 go.mod 声明为准)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: 构建 examples module
+        working-directory: examples
+        run: go build ./...

@@ -1,0 +1,2 @@
+# go build ./... 对本 module 根包(main)会把二进制按目录名落盘在本目录,防误入库
+/examples

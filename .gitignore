@@ -1,0 +1,44 @@
+# 本地私有文档(不入库)
+/MISSION.md
+/RESOURCES.md
+/NOTES.md
+/teaching-retro-2026-11-05.md
+/lessons/
+/reference/
+/assets/
+/learning-records/
+/docs/plan/
+/docs/research/
+
+# ZCode 本地数据
+.zcode/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+/bin/
+/dist/
+
+# 依赖
+vendor/
+
+# 环境与本地配置
+.env
+.env.*
+*.local.yaml
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# git worktree 工作区(实现票时临时使用)
+.worktrees/

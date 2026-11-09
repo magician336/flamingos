@@ -1,0 +1,2 @@
+# 统一换行符:仓库内与工作区均为 LF(Go 项目,CI 在 Linux 运行)
+* text=auto eol=lf

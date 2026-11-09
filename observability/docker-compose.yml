@@ -1,0 +1,13 @@
+# flamingos 本地可观测验收环境(spec 0004 票 0004-03):
+# 一条命令拉起 Jaeger(all-in-one,OTLP gRPC 接收),供全链路 tracing 人工验收。
+# 数据只存容器内存,容器删除即清零;不进 CI(Jaeger 人工验收口径)。
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: flamingos-jaeger
+    environment:
+      # v1.43 起 OTLP 默认开启;显式声明让 compose 自解释。
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI 与 HTTP API(http://localhost:16686)
+      - "4317:4317"   # OTLP gRPC——flamingos 的 telemetry.otlp_endpoint 指向这里(localhost:4317)

@@ -1,0 +1,14 @@
+# 01:Eino 示例——examples/ 独立 module
+
+**Spec:** [0009 发布就绪:Eino 示例、README 与公开仓交付](../../../specs/0009-release-readme-eino-publish.md)
+**What to build:** 仓库获得"第三方 Agent 框架消费网关工具"的可复制起点:顶层 examples/ 目录落地(架构 §2 预告行),内部为独立 Go module——examples 下自持 go.mod(eino、eino-ext officialmcp、go-sdk 按主模块同版 v1.8.0 pin),主模块 go.mod 零变化(依赖面审查成本隔离;Go 工具链不遍历嵌套 module,既有 go build ./... 与 go test ./... 机械判据不受影响)。示例 = officialmcp 的 GetTools 把网关聚合工具桥接为 Eino 工具接口,经该接口**直调网关工具一次**并输出结果——无 LLM key 依赖(接入验证不依赖任何厂商账号);连接网关端点走 Streamable HTTP transport(官方示例为 SSE transport,差异点在注释注明;research/06 §4 记录的 issue #1006 是"远程带鉴权 server"路径的已知边界,连自家网关不受影响)。可验证:示例 module go build 成功;连真网关(临时配置拉起)直调成功一次性验证(发布票人工判据先例,不入主模块回归)。README 的示例用法节由票 02 引用本票产物。
+**Blocked by:** 无(可立即开工)。
+**Status:** done (2026-11-09)
+
+- [x] examples/ 独立 module 落地:examples 下自持 go.mod(eino、eino-ext officialmcp、go-sdk 同版 pin),主模块 go.mod 零变化(diff 机械核对)
+- [x] 示例代码:officialmcp GetTools 桥接网关聚合工具为 Eino 工具接口,直调网关工具一次并输出;无 LLM key 依赖,全程可跑
+- [x] 连接网关端点走 Streamable HTTP transport,SSE 差异点与 issue #1006 边界在注释注明
+- [x] 示例 module `go build ./...` 成功;连真网关直调成功一次性验证(输出含网关聚合工具名与应答内容)
+- [x] 主模块四件套不受影响:`go build ./...`、`go vet ./...`、`gofmt -l`(触碰文件)、`go test ./... -race` 全部包全绿,既有测试零改动
+
+> 定档留痕:①布局裁决——examples/ 为独立 module(module github.com/magician336/flamingos/examples,go 1.27.1),示例落在 module 根包:`go build ./...` 对匹配到的单一 main 包会把二进制按包目录名写进当前目录,任何 examples 子目录布局都与输出文件撞名(`build output "eino-tools" already exists and is a directory` 实证),根包布局是该判据逐字可跑的唯一形态,go run/build 目标即本目录。②依赖 pin——三条直接依赖显式 pin:eino v0.9.22、eino-ext officialmcp v0.1.1、go-sdk v1.8.0(主模块同版);officialmcp 自身要求 eino≥v0.9.7、go-sdk≥v1.6.1,MVS 收敛到 pin 版;主模块 go.mod/go.sum 对 tip 94f7bcc diff 零输出机械核对通过。③officialmcp API 实测形状(goproxy.cn 拉取 v0.1.1 源码 + go doc 现查)与票面叙述一致:`GetTools(ctx, &Config{Cli: sess})` 返回 []tool.BaseTool,Config.Cli 为 ClientSession 接口(*mcp.ClientSession 直接满足;连接级失败透明重连需换 session.Session);直调经 InvokableTool.InvokableRun(ctx, argsJSON);实测出参为整份 CallToolResult 序列化 JSON 信封(_meta/content/resultType),上游工具原文在 content[0].text,示例原样透出不二次拆包。④transport——StreamableClientTransport{Endpoint, DisableStandaloneSSE: true}(架构 §4 adapter 实现注意⑤,cmd e2e 同款);与官方示例 SSEClientTransport 的差异、不含模型段、issue #1006 边界均在包注释注明,issue #1006 实情经 GitHub 现核(open,officialmcp 对远程带鉴权 server 路径的鉴权/工具选择/会话清理需调用方自行组装),连自家无鉴权网关不受影响。⑤端点注入——-endpoint flag 或环境变量 FLAMINGOS_MCP_ENDPOINT,兜底缺省 http://127.0.0.1:8080/mcp,不以常量绑定调用目标。⑥直调一次性验证(2026-11-09)——网关与 internal/upstream/testdata/httpserver 夹具真二进制(/tmp 临时目录构建,e2e TestMain 手法),临时 YAML 单 http 上游 calc,-tool calc_echo 显式路径与缺省清单首项路径均退出码 0,输出含聚合工具名与回显应答(content[0].text = `{"text":"hello from eino"}` 字节级回显);验证脚本与产物全在 /tmp,examples/ 零验证残留,/proc argv[0] 精确匹配零孤儿。⑦环境注意——eino 依赖 bytedance/sonic 对 go1.27 未适配,运行时打印 WARNING 并回落 encoding/json,功能不受影响(全链直调成功实证),sonic 适配属上游事务。⑧机械判据——examples module go build/vet/gofmt 全干净;主模块 go build/vet 干净,gofmt -l 全树唯一输出 spike/sdkapi/main.go 为 tip 94f7bcc 既有状态(主检出同样报出,非本票触碰文件;触碰范围 examples/ 零输出),go test ./... -race -count=1 16 包全绿,既有测试零改动。

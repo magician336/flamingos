@@ -1,0 +1,18 @@
+# 02:故障演练自动化与演练记录
+
+**Spec:** [0007 运行质量实证:vegeta 压测、故障演练与基础 e2e](../../../specs/0007-benchmark-drills-e2e.md)
+**What to build:** 网关的故障行为与恢复时间获得实证记录。夹具扩展两种异常注入形态:panic 模式(处理器 panic——SDK 生产代码无 recover,上游进程自身崩溃)与协议外应答模式(裸 HTTP 层对特定工具名返回非 JSON-RPC 应答或错误 Media Type,探测网关解析路径)。三 family 演练自动化进 e2e 套件(01 的 harness 与夹具之上):①**上游 kill -9**——HTTP 夹具与 stdio 夹具各一例、空载与在途(slow 进行中)两种时机,断言网关进程存活、故障上游调用点名不可用、健康上游不受影响;恢复路径实证:HTTP = 上游进程重启后调用恢复,stdio = 子进程无再拉起、网关重启后恢复(spec 0003 简化策略的实证);SDK 客户端会话对上游重启的容忍度是 SDK 行为事实,实测后结论入记录,不可自愈则如实记为 Limitations 与运行说明条目。②**断流重发**——slow 在途时杀上游,在途调用失败后上游恢复,同一 Agent 会话重发同一调用成功;网关侧不加自动重试机制(记录的是客户端重发语义)。③**异常注入**——panic 按 kill -9 语义并案;协议外应答下该调用得到明确错误、网关存活、后续调用照常,实测 net/http 每连接 panic 隔离与 SDK 解析层报错的真实边界。恢复时间数据统一记录格式(前置拓扑/注入手段命令级/预期/实际含关键错误文案/恢复窗口轮询采样/结论与 Limitations 归档项)沉淀 docs/drills.md(工程语境,W4 README 可引用)。应急修复条款生效口:演练若暴露网关进程级崩溃路径(超出 net/http 单连接隔离),时间盒内最小修复(候选:transport 层 recover 中间件)+ 定点单测 + spec 修订表追记——预期不发生,发生即留痕。
+**Blocked by:** 01(HTTP 假上游夹具 + e2e 骨架——harness 与夹具就位)。
+**Status:** done (2026-11-08)
+
+- [x] 夹具 panic 与协议外应答两种注入形态可用
+- [x] kill -9 四例(HTTP/stdio × 空载/在途)自动化:网关存活、点名不可用、健康上游不受影响全部断言通过
+- [x] 恢复路径实证入记录:HTTP 上游重启后恢复;stdio 网关重启后恢复;SDK 会话容忍度结论明确
+- [x] 断流重发:在途断流失败 → 上游恢复 → 同会话重发成功,"注入到重发成功"窗口数据入记录
+- [x] 异常注入:协议外应答下该调用明确报错、网关存活、后续调用照常;panic 并案记录("后续调用照常"的实测边界 = 另一上游照常;同一上游会话被协议错误关闭需网关重启,见留痕⑤)
+- [x] docs/drills.md 三 family 全场景齐备,统一记录格式,恢复时间数据齐全,零教学求职语境
+- [x] 应急修复条款:未触发则在记录留痕"降级未发生";触发则最小修复 + 定点单测 + spec 修订表追记(七场景网关进程均存活,未触发)
+- [x] `go test ./... -race` 全绿(演练轮询窗口设上限,常规回归时长可接受;e2e 包 12.5s)
+
+> 定档留痕:①夹具注入形态的装配方式——默认形态(无第三参数)与票 01 逐字节一致(tool 表四工具、handler 无包装,票 01 的 8 工具断言不破),argv[2]=inject 激活注入形态:panic 工具注册进既有 tool 表;协议外应答在 SDK handler 外包一层裸 HTTP 短路器(oobReplyHandler),按 JSON-RPC 信封 method=tools/call + params.name 精确匹配短路,200 + text/html 写回非 JSON-RPC 字节流,其余请求还原请求体原样放行。触发工具必须同时注册进 tool 表:网关对聚合清单做启动快照注册(transport.New 一次 HandleToolsList 后逐名 AddTool),未注册原始名到不了夹具(网关侧 SDK server 先以 unknown tool 拒绝)——这是"裸 HTTP 层对特定工具名短路"得以生效的前提。②panic 边界实测:SDK v1.8.0 生产代码零 recover,且 tools/call 在会话读 goroutine 上执行(streamable.go servePOST 经 incoming 通道交由 connect() 内 spawned 的 jsonrpc2 读 goroutine 调 handler),panic 不在 net/http 连接 goroutine 上,"每连接 recover"不适用——夹具进程自身崩溃(退出码 2,cmd.Wait 返回即实证),网关存活;kill -9 语义并案成立。③SDK 会话容忍度(本票核心实测):HTTP 上游进程 kill -9(空载/在途/panic 三形态)后同端口重启,网关会话不重连即恢复,恢复窗口毫秒级(31.6/33.1/43.9ms 实测)——传输层连接失败(EOF/RST/refused)不关闭 SDK 客户端会话;stdio 子进程 kill -9 后无再拉起(spec 0003 简化策略实证,有限窗口重试全败),恢复 = 网关重启(同端口同配置),窗口 376.1/64.9ms。④协议外应答实测(超出票面预期的发现):错误形态 = err(非 IsError),文案 `上游 "calc" 不可用: ... unsupported content type "text/html"`;SDK 把非法 Media Type 当致命协议错误关闭整条客户端会话,网关"每上游一条长会话"构造下该上游后续调用持续报错(探针 3s 十次重试全败,`client is closing: EOF`),不可自愈——"后续调用照常"的实测边界 = 另一上游照常,同一上游需网关重启(窗口 381.9ms),按 Limitations 与运行说明条目记录。⑤断流重发:同一 Agent 会话(agent 实例自始至终未重连)在在途断流失败、夹具重启后重发同一调用成功;窗口口径 = 注入→重发成功 3.03s,其中重发调用含 slow 工具自身 3s 固定延迟,注入→重发发起净窗口 24.7ms。⑥恢复窗口全部数字与口径(20ms 轮询步长、10s 单窗口上限、单次套件运行观测、同机回环)落 docs/drills.md 场景记录与"环境与测量口径"节;错误文案三种传输层变体(EOF/RST/refused)已注明。⑦与票面字面的偏差:票面"后续调用照常"按实测边界收窄(见④);应急修复条款未触发(七场景网关进程 SIG 0 探测全通过,drills.md 留痕);夹具 diff 仅 httpserver/main.go(testdata),stdioserver 未动,协议外应答形态仅 HTTP 传输可行(stdio 无裸 HTTP 层)。
+> 评审收口:e2e/drills_test.go 包内小步去重与具名(行为零变化、断言文案逐字保留)——①在途注入脚手架(goroutine 发起 + 固定沉淀等待,同形三例)提取为 startInFlightCall,恢复尾段(waitCallSuccess + `{"recovered":true}` 字节级回显断言,同形五例)提取为 assertRecoveredCall;②内联时长字面量具名为包内常量 inflightSettleDelay(300ms,在途沉淀等待)与 probeRetryDelay(100ms,持续失效探针间隔),单一出处;③夹具缩写展开:oobToolName/oobReplyHandler/oobStubHandler 改名 outOfBandToolName/outOfBandReplyHandler/outOfBandStubHandler(testdata 夹具,工具名字符串值 "rawreply" 与线上形态零变化);④procOutput 结伴载体{(exec.Cmd, *strings.Builder)} 提取,四函数(startGatewayProcess/waitExit/startGatewayDrill/restartGateway)签名收敛;⑤两处 _pid 对照断言文案逐字不同且仅两例,保留在各调用点(合并需参数化文案,违背"文案逐字保留"约束)。

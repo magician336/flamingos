@@ -1,0 +1,16 @@
+# 02:evalx 引擎与 CLI——回放、五种 grader、报告与退出码
+
+**Spec:** [0008 evalx 最小闭环:工具调用录制、回放与确定性 grader 门禁](../../../specs/0008-evalx-record-replay-grader.md)
+**What to build:** 录制文件获得机器可判的消费端:一条命令对运行中的网关回放行为基准并给出报告与退出码。internal/evalx 引擎落地:以本地 Caller 小接口(单方法——执行一次聚合调用,入参聚合名 + 参数原始字节 + 请求头,出参应答 JSON/错误三态;结构化类型无 import 即满足,SDK 机器类型禁入引擎,D4 纪律延伸)驱动串行顺序回放;五种确定性 grader 全量落地——①结果等值(JSON 语义比较,对象键序无关、数组有序,适用成功与业务失败形态)②错误形态(录制 kind 与回放实际一致,传输错误文案须含上游点名,沿 spec 0002 透传语义)③json-schema 校验(条目可选 schema 字段对 result 校验)④序列匹配(文件级:回放条目数与聚合名序列和录制一致,错序/漏调/多调即败)⑤延迟上限(条目可选阈值字段,超限即败,缺省不断言)。golden + 覆写:录制文件即回放用例(录到的应答就是期望),schema 与延迟阈值等可选字段经显式手编覆写,无第二套用例格式。cmd/evalx 第二二进制落地:flags = 录制文件、网关端点 URL、可重复的请求头透传(角色头经此与录制时同口径)、报告格式;go-sdk client 适配只在此层(把应答翻译为引擎吃的 JSON 形态)。报告双形态:默认表格(人读)、--json(条目数/通过数/失败明细含条目号与 grader 名,机器可读);退出码三态 0(全部通过)/1(存在断言失败)/2(自身运行错误:文件不可读、端点不可达)——沿网关既有 0/1/2 语义。可演示:录制文件 + 运行中网关 → 一条命令 → 报告与退出码。
+**Blocked by:** 01(录制器——config 段、mcp 层录制中间件与装配接线)。
+**Status:** done (2026-11-09)
+
+- [x] internal/evalx 引擎落地:本地 Caller 接口驱动串行顺序回放,SDK 机器类型零出现(可机械核对),引擎可桩驱动单测零网络
+- [x] 五种 grader 全量落地且语义符合票面:等值键序无关、错误形态点名上游、schema 条目级可选、序列文件级、延迟条目级可选缺省不断言
+- [x] golden + 覆写成立:录制文件单文件自足为用例,可选字段手编覆写生效
+- [x] cmd/evalx 落地:go-sdk client 适配只在 CLI 层,--header 可重复透传,表格默认与 --json 双报告形态字段齐备
+- [x] 退出码三态契约:全过 = 0、存在断言失败 = 1、文件不可读与端点不可达 = 2
+- [x] 引擎表驱动单测覆盖五种 grader 的通过与失败两侧与退出码映射;json-schema 经既有依赖图内库转正直接依赖,go.mod 净增恰一条
+- [x] `go build ./...`、`go vet ./...`、`gofmt -l` 触碰文件干净;`go test ./... -race` 全部包全绿,既有测试零改动
+
+> 定档留痕:①实现路径——internal/evalx 六文件(evalx.go 包文档+Caller 单方法接口+Case+kindOf 三态判定、case.go LoadCases、engine.go Replay 串行主流程、grader.go 五种、report.go 双形态+三个测试文件)与 cmd/evalx 单文件(run/parseFlags/parseHeaders/validateOptions/exitCode/sdkCaller/headerTransport);Case 内嵌 recorder.Record(格式知识单一出处,依赖方向 evalx → recorder 单向只取记录形态,无环),引擎出参三态判定 kindOf 与录制端中间件判定同构(err 非 nil=transport_error、IsError=business_failure、其余 success)。②CLI 适配实测——应答经 json.Marshal(*mcp.CallToolResult) 翻译,与录制端同库同类型同序列化(形态一致性探针实测:`{"content":[{"type":"text","text":…}]}`);handler error 经 SDK 透传后错误文案原子串保留(`calling "tools/call": 上游 "calc" 不可用: …`),故录制文案中的上游点名锚点在回放文案可重现,点名断言以 `上游 "ns"` 正则提取锚定(gateway/errors.go 错误契约同形);--header 注入面 = StreamableClientTransport.HTTPClient 自定义 RoundTripper,per-call 头经 ctx 通道(SDK CallTool 无 header 旋钮),服务端实测收到;不可达端点 Connect 立即报错(~1ms,无退避等待)。③jsonschema-go v0.4.3 实测口径——未知 type 词表值 Resolve 宽容(校验时自然败),未定义 $ref 与 required 类型错在 LoadCases 即报文件错误;Validate(nil instance) 安全(按 JSON null 处理,传输错误条目配 schema 不 panic);go.mod 转正恰一条直接依赖、go.sum 零变化。④覆写字段定稿:手编覆写=直接编辑录制行追加 `schema`(JSON Schema 对象)与 `latency_limit_ms`(毫秒整数)两个字段,加载端解析进 Case(单文件自足,无第二套格式);延迟上限语义=不允许超过(等于上限不算超限),0=缺省不断言。⑤与票面字面的偏差——(a)kind 字面量沿票 01 已声明的英文三态 success/business_failure/transport_error,引擎与报告同字面量;(b)序列 grader 在串行单发引擎下执行台账与用例序天然同构,checkSequence 为管线完整性断言(失败面语义由纯函数四形态测试钉住:错序/漏调/多调即败;引擎未来跳条/重试/并发改动会被它抓住),实际可败面=用例管线丢行/重复行;(c)录制端 params 形状异常的 tool 空行是观察记录而非可回放用例,消费端 LoadCases 拒绝并点名行号(文件错误退出 2);(d)kind 漂移时 error_shape 与 result_equal 各自点名双报(等值比较 null 与录制 result 的差异也是事实,失败明细不吞);(e)role 的回放同口径靠使用者显式 `--header 名:值` 透传(录制的 role 字段是值不是头名,引擎不自动派生请求头);(f)空录制文件(零条目)判为文件错误而非"零条全过"(行为基准为空无门禁意义)。⑥机械判据实测:go build ./... 干净、go vet ./... 干净、gofmt -l 触碰文件零输出(spike/sdkapi 既有未格式化文件不在触碰范围)、go test ./... -race -count=1 全部 17 包全绿(internal/evalx 与 cmd/evalx 入回归),既有测试零改动(diff 仅 9 个新文件 + go.mod);真二进制冒烟:不可达端点中文点名退出码 2,全过/断言失败两路经 httptest 夹具网关覆盖(真网关进程契约归票 03 e2e family)。
