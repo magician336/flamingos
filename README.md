@@ -1,7 +1,5 @@
 # flamingos
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/magician336-flamingos-vujiff?v=a36960ba7dc0c2700fec02ba45b84aa5)](https://m8ven.ai/mcp/magician336-flamingos-vujiff?s=readme)
-
 flamingos 是一个 MCP(Model Context Protocol)网关,Go 实现:把多个上游 MCP server 的工具聚合到单一 Streamable HTTP 端点,并在网关层提供全链路追踪、访问策略与审计、结果缓存与行为基准(录制 / 回放 / 确定性断言)。Agent 侧(Inspector、Eino、任意 MCP SDK)只看到一个端点;上游侧 HTTP 与 stdio 两类 server 都可挂。
 
 - 语言与运行形态:Go(go.mod 声明 go 1.27.1),对外为 Stateless Streamable HTTP(每请求独立,服务端无会话状态)。
